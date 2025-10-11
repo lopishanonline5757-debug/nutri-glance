@@ -1,115 +1,112 @@
-import { Flame, Beef, Wheat, Droplet } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
-interface NutritionData {
+interface FoodItem {
+  name: string;
+  quantity: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
-  servingSize?: string;
-  foodItems?: string[];
+}
+
+interface NutritionData {
+  status: string;
+  food: FoodItem[];
+  total: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
 }
 
 interface NutritionResultsProps {
   data: NutritionData;
 }
 
-const MacroCard = ({ 
-  icon: Icon, 
-  label, 
-  value, 
-  unit, 
-  color 
-}: { 
-  icon: any; 
-  label: string; 
-  value: number; 
-  unit: string; 
-  color: string;
-}) => (
-  <Card className="p-6 hover:shadow-md transition-shadow">
-    <div className="flex items-center gap-3 mb-3">
-      <div className={`p-2 rounded-lg ${color}`}>
-        <Icon className="h-5 w-5 text-white" />
-      </div>
-      <span className="text-sm font-medium text-muted-foreground">{label}</span>
-    </div>
-    <div className="flex items-baseline gap-1">
-      <span className="text-3xl font-bold">{value}</span>
-      <span className="text-muted-foreground">{unit}</span>
-    </div>
-  </Card>
-);
-
 export const NutritionResults = ({ data }: NutritionResultsProps) => {
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6 animate-fade-in">
-      {/* Main Calories Card */}
-      <Card className="p-8 bg-gradient-to-br from-primary to-primary/90 text-primary-foreground">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm opacity-90 mb-2">Total Calories</p>
-            <p className="text-5xl font-bold">{data.calories}</p>
-            <p className="text-sm opacity-75 mt-2">kcal</p>
+    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+      {/* Total Summary Card */}
+      <Card className="border-primary/20 shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2">
+            <span>Total Nutrition</span>
+            <Badge variant="secondary" className="ml-auto">
+              {data.status}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold text-primary">
+                {data.total.calories}
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Calories</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-secondary/5">
+              <div className="text-3xl font-bold text-secondary">
+                {data.total.protein}g
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Protein</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-accent/5">
+              <div className="text-3xl font-bold text-accent">
+                {data.total.carbs}g
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Carbs</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold text-primary">
+                {data.total.fat}g
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">Fat</div>
+            </div>
           </div>
-          <div className="p-4 bg-white/20 rounded-full">
-            <Flame className="h-12 w-12" />
-          </div>
-        </div>
+        </CardContent>
       </Card>
 
-      {/* Macros Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MacroCard
-          icon={Beef}
-          label="Protein"
-          value={data.protein}
-          unit="g"
-          color="bg-secondary"
-        />
-        <MacroCard
-          icon={Wheat}
-          label="Carbs"
-          value={data.carbs}
-          unit="g"
-          color="bg-accent"
-        />
-        <MacroCard
-          icon={Droplet}
-          label="Fat"
-          value={data.fat}
-          unit="g"
-          color="bg-primary"
-        />
-      </div>
-
-      {/* Additional Info */}
-      {(data.servingSize || data.foodItems) && (
-        <Card className="p-6">
-          {data.servingSize && (
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-muted-foreground mb-2">Serving Size</h3>
-              <p className="text-lg">{data.servingSize}</p>
-            </div>
-          )}
-          
-          {data.foodItems && data.foodItems.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-muted-foreground mb-2">Detected Items</h3>
-              <div className="flex flex-wrap gap-2">
-                {data.foodItems.map((item, index) => (
-                  <span 
-                    key={index}
-                    className="px-3 py-1 bg-muted rounded-full text-sm"
-                  >
-                    {item}
-                  </span>
-                ))}
+      {/* Individual Food Items */}
+      <Card className="border-primary/20 shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-xl">Food Items Detected</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {data.food.map((item, index) => (
+              <div key={index}>
+                {index > 0 && <Separator className="my-4" />}
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-semibold text-lg">{item.name}</h3>
+                      <p className="text-sm text-muted-foreground">{item.quantity}</p>
+                    </div>
+                    <Badge variant="outline">{item.calories} cal</Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="p-2 rounded-md bg-secondary/10">
+                      <div className="font-semibold text-secondary">{item.protein}g</div>
+                      <div className="text-xs text-muted-foreground">Protein</div>
+                    </div>
+                    <div className="p-2 rounded-md bg-accent/10">
+                      <div className="font-semibold text-accent">{item.carbs}g</div>
+                      <div className="text-xs text-muted-foreground">Carbs</div>
+                    </div>
+                    <div className="p-2 rounded-md bg-primary/10">
+                      <div className="font-semibold text-primary">{item.fat}g</div>
+                      <div className="text-xs text-muted-foreground">Fat</div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-        </Card>
-      )}
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };

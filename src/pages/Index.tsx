@@ -6,13 +6,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Sparkles, ArrowLeft } from "lucide-react";
 
-interface NutritionData {
+interface FoodItem {
+  name: string;
+  quantity: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
-  servingSize?: string;
-  foodItems?: string[];
+}
+
+interface NutritionData {
+  status: string;
+  food: FoodItem[];
+  total: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
 }
 
 const Index = () => {
@@ -46,7 +57,14 @@ const Index = () => {
             throw new Error(data.error);
           }
 
-          setNutritionData(data);
+          // Handle webhook response format: [{ output: { status, food, total } }]
+          const webhookData = Array.isArray(data) ? data[0]?.output : data;
+          
+          if (!webhookData || !webhookData.total) {
+            throw new Error('Invalid response format from analysis service');
+          }
+
+          setNutritionData(webhookData);
           toast({
             title: "Analysis Complete!",
             description: "Your meal has been analyzed successfully.",

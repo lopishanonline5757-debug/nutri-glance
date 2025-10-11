@@ -20,77 +20,23 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      console.error('LOVABLE_API_KEY is not configured');
-      return new Response(
-        JSON.stringify({ error: 'AI service is not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
-    console.log('Analyzing meal image with Lovable AI...');
+    console.log('Sending meal image to webhook...');
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://bision.app.n8n.cloud/webhook-test/Meal.Ai', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a nutrition expert. Analyze food images and provide accurate nutritional estimates. 
-            Return ONLY a JSON object with this exact structure (no markdown, no explanation):
-            {
-              "calories": number,
-              "protein": number,
-              "carbs": number,
-              "fat": number,
-              "servingSize": string,
-              "foodItems": string[]
-            }
-            All macros should be in grams. Be reasonably accurate based on visible portion sizes.`
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'Analyze this meal and provide nutritional information.'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageBase64
-                }
-              }
-            ]
-          }
-        ],
+        image: imageBase64
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI Gateway error:', response.status, errorText);
+      console.error('Webhook error:', response.status, errorText);
       
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded. Please try again in a moment.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'AI service credits depleted. Please add credits to continue.' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
       return new Response(
         JSON.stringify({ error: 'Failed to analyze image' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -98,30 +44,16 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
     
-    if (!content) {
-      console.error('No content in AI response');
+    if (!data || !Array.isArray(data) || !data[0]?.output) {
+      console.error('Invalid webhook response:', data);
       return new Response(
-        JSON.stringify({ error: 'Invalid response from AI service' }),
+        JSON.stringify({ error: 'Invalid response from analysis service' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Parse the JSON response from the AI
-    let nutritionData;
-    try {
-      // Remove markdown code blocks if present
-      const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      nutritionData = JSON.parse(cleanContent);
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', content);
-      return new Response(
-        JSON.stringify({ error: 'Failed to parse nutrition data' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    const nutritionData = data[0].output;
     console.log('Successfully analyzed meal:', nutritionData);
 
     return new Response(
