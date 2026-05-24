@@ -151,7 +151,21 @@ serve(async (req) => {
       return jsonResponse({ ...fallbackData, source: 'built-in-ai', warning: message });
     }
 
-    const data = await response.json();
+    const responseText = await response.text();
+    let data: unknown;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Webhook returned non-JSON response:', responseText.slice(0, 500), parseError);
+      const fallbackData = await analyzeWithLovableAI(imageBase64);
+      return jsonResponse({
+        ...fallbackData,
+        source: 'built-in-ai',
+        warning: 'The n8n webhook did not return JSON, so built-in AI analyzed the image instead.',
+      });
+    }
+
     console.log('Webhook response:', JSON.stringify(data));
     
     // Check if webhook returned "Workflow was started" message (async workflow)
