@@ -127,8 +127,7 @@ serve(async (req) => {
 
     console.log('Sending meal image to webhook...');
 
-    const webhookUrl = 'https://bision.app.n8n.cloud/webhook-test/Meal.Ai';
-    const response = await fetch(webhookUrl, {
+    const response = await fetch(WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -146,11 +145,10 @@ serve(async (req) => {
       const message = isMissingWorkspace
         ? 'The meal scan webhook is not reachable. n8n says “No workspace here”, so the webhook URL or workspace subdomain appears incorrect.'
         : `The meal scan webhook returned ${response.status}. Please check that the n8n workflow is active and the webhook URL is correct.`;
-      
-      return new Response(
-        JSON.stringify({ error: message, details: errorText.slice(0, 500), webhookUrl }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+
+      console.warn(`${message} Falling back to built-in AI analysis.`);
+      const fallbackData = await analyzeWithLovableAI(imageBase64);
+      return jsonResponse({ ...fallbackData, source: 'built-in-ai', warning: message });
     }
 
     const data = await response.json();
@@ -159,36 +157,32 @@ serve(async (req) => {
     // Check if webhook returned "Workflow was started" message (async workflow)
     if (data.message === "Workflow was started") {
       console.error('Webhook is configured for async execution. Add a "Respond to Webhook" node in n8n.');
-      return new Response(
-        JSON.stringify({ 
-          error: 'Webhook is not configured to return data. Please add a "Respond to Webhook" node at the end of your n8n workflow to return the analysis results.'
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      const fallbackData = await analyzeWithLovableAI(imageBase64);
+      return jsonResponse({
+        ...fallbackData,
+        source: 'built-in-ai',
+        warning: 'The n8n webhook started asynchronously and did not return meal data, so built-in AI analyzed the image instead.',
+      });
     }
     
     // Validate the expected response format
     if (!data || !Array.isArray(data) || !data[0]?.output) {
       console.error('Invalid webhook response format:', data);
-      return new Response(
-        JSON.stringify({ error: 'Invalid response format from analysis service' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      const fallbackData = await analyzeWithLovableAI(imageBase64);
+      return jsonResponse({
+        ...fallbackData,
+        source: 'built-in-ai',
+        warning: 'The n8n webhook returned an unexpected format, so built-in AI analyzed the image instead.',
+      });
     }
 
     const nutritionData = data[0].output;
     console.log('Successfully analyzed meal:', JSON.stringify(nutritionData));
 
-    return new Response(
-      JSON.stringify(nutritionData),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ ...nutritionData, source: 'webhook' });
 
   } catch (error) {
     console.error('Error in analyze-meal function:', error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error occurred' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({ error: error instanceof Error ? error.message : 'Unknown error occurred' }, 500);
   }
 });
