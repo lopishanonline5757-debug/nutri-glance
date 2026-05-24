@@ -23,7 +23,8 @@ serve(async (req) => {
 
     console.log('Sending meal image to webhook...');
 
-    const response = await fetch('https://bision.app.n8n.cloud/webhook-test/Meal.Ai', {
+    const webhookUrl = 'https://bision.app.n8n.cloud/webhook-test/Meal.Ai';
+    const response = await fetch(webhookUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -36,10 +37,15 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Webhook error:', response.status, errorText);
+
+      const isMissingWorkspace = errorText.includes('No workspace here');
+      const message = isMissingWorkspace
+        ? 'The meal scan webhook is not reachable. n8n says “No workspace here”, so the webhook URL or workspace subdomain appears incorrect.'
+        : `The meal scan webhook returned ${response.status}. Please check that the n8n workflow is active and the webhook URL is correct.`;
       
       return new Response(
-        JSON.stringify({ error: 'Failed to analyze image' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: message, details: errorText.slice(0, 500), webhookUrl }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
