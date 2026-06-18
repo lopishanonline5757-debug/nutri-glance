@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2, Sparkles } from "lucide-react";
+
+const authRedirectTo = `${window.location.origin}/dashboard`;
+const passwordResetRedirectTo = `${window.location.origin}/reset-password`;
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -36,32 +38,55 @@ export default function Auth() {
   const signUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        emailRedirectTo: authRedirectTo,
         data: { full_name: name },
       },
     });
     setLoading(false);
     if (error) toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
-    else toast({ title: "Welcome!", description: "Check your email to confirm your account." });
+    else if (data.user?.identities?.length === 0) {
+      toast({
+        title: "Account already exists",
+        description: "Try signing in, or use Forgot password if you cannot remember your password.",
+      });
+    } else if (data.session) {
+      toast({ title: "Welcome!", description: "Your account is ready." });
+      navigate("/dashboard");
+    } else {
+      toast({
+        title: "Check your email",
+        description: "We sent a confirmation link. Check spam/junk too if it does not arrive.",
+      });
+    }
   };
 
   const google = async () => {
     setLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: `${window.location.origin}/dashboard` });
-    if (result.error) {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: authRedirectTo,
+        queryParams: {
+          access_type: "offline",
+          prompt: "select_account",
+        },
+      },
+    });
+
+    if (error) {
       setLoading(false);
-      toast({ title: "Google sign-in failed", description: result.error.message, variant: "destructive" });
+      toast({ title: "Google sign-in failed", description: error.message, variant: "destructive" });
     }
   };
 
   const forgot = async () => {
     if (!email) return toast({ title: "Enter your email first", variant: "destructive" });
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: passwordResetRedirectTo,
     });
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
     else toast({ title: "Check your email", description: "Password reset link sent." });
