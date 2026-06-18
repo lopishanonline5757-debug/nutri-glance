@@ -64,6 +64,35 @@ This project is built with:
 
 Simply open [Lovable](https://lovable.dev/projects/b747693d-f35a-46b5-992f-0c97d834dacf) and click on Share -> Publish.
 
+## Auth and email setup
+
+Email signup sends confirmation mail from the Supabase Edge Function `signup-with-email`. The frontend only calls the function and shows success after Resend accepts the email.
+
+Set these Supabase function secrets:
+
+```sh
+supabase secrets set RESEND_API_KEY=your_resend_api_key
+supabase secrets set RESEND_FROM_EMAIL="NutriGlance <hello@your-verified-domain.com>"
+```
+
+Use a sender from a verified Resend domain for production. If your domain is not verified yet, use Resend's test sender only for testing.
+
+In Supabase Auth settings:
+
+- Enable the Google provider and add the Google client ID/secret.
+- Set the Site URL to the deployed Lovable app URL.
+- Add redirect URLs for the deployed app and local development:
+  - `https://your-lovable-app-url/auth/callback`
+  - `https://your-lovable-app-url/reset-password`
+  - `http://localhost:5173/auth/callback`
+  - `http://localhost:5173/reset-password`
+
+In Google Cloud OAuth settings, add the Supabase callback URL:
+
+```text
+https://jyarierrvfomrqvomdlz.supabase.co/auth/v1/callback
+```
+
 ## Can I connect a custom domain to my Lovable project?
 
 Yes, you can!

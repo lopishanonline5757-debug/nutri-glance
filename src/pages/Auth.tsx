@@ -10,8 +10,27 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2, Sparkles } from "lucide-react";
 
-const authRedirectTo = `${window.location.origin}/dashboard`;
+const authRedirectTo = `${window.location.origin}/auth/callback`;
 const passwordResetRedirectTo = `${window.location.origin}/reset-password`;
+
+const functionErrorMessage = async (error: unknown, fallback: string) => {
+  const context = (error as { context?: Response })?.context;
+  if (context) {
+    try {
+      const body = await context.clone().json();
+      if (body?.error) return String(body.error);
+    } catch {
+      try {
+        const text = await context.clone().text();
+        if (text) return text;
+      } catch {
+        // Fall through to the normal error message.
+      }
+    }
+  }
+
+  return (error as { message?: string })?.message || fallback;
+};
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -38,30 +57,27 @@ export default function Auth() {
   const signUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: authRedirectTo,
-        data: { full_name: name },
+    const { data, error } = await supabase.functions.invoke("signup-with-email", {
+      body: {
+        email,
+        password,
+        fullName: name,
+        redirectTo: authRedirectTo,
       },
     });
     setLoading(false);
-    if (error) toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
-    else if (data.user?.identities?.length === 0) {
-      toast({
-        title: "Account already exists",
-        description: "Try signing in, or use Forgot password if you cannot remember your password.",
-      });
-    } else if (data.session) {
-      toast({ title: "Welcome!", description: "Your account is ready." });
-      navigate("/dashboard");
-    } else {
-      toast({
-        title: "Check your email",
-        description: "We sent a confirmation link. Check spam/junk too if it does not arrive.",
-      });
+    if (error || !data?.ok) {
+      const message =
+        (data as { error?: string } | null)?.error ||
+        (await functionErrorMessage(error, "Could not send the confirmation email."));
+      toast({ title: "Sign up failed", description: message, variant: "destructive" });
+      return;
     }
+
+    toast({
+      title: "Check your email",
+      description: "Confirmation email sent successfully.",
+    });
   };
 
   const google = async () => {
