@@ -1,202 +1,153 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const WEBHOOK_URL = 'https://bision.app.n8n.cloud/webhook-test/Meal.Ai';
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-
-const toNumber = (value: unknown) => {
-  const number = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(number) ? Math.round(number * 10) / 10 : 0;
-};
-
-const normalizeNutritionData = (rawData: unknown) => {
-  const data = rawData as any;
-  const output = Array.isArray(data) ? data[0]?.output : data?.output ?? data;
-
-  if (!output || !Array.isArray(output.food) || !output.total) {
-    return null;
-  }
-
-  return {
-    status: output.status || 'success',
-    food: output.food.map((item: any) => ({
-      name: String(item.name || 'Unknown food'),
-      quantity: String(item.quantity || 'estimated serving'),
-      calories: toNumber(item.calories),
-      protein: toNumber(item.protein),
-      carbs: toNumber(item.carbs),
-      fat: toNumber(item.fat),
-    })),
-    total: {
-      calories: toNumber(output.total.calories),
-      protein: toNumber(output.total.protein),
-      carbs: toNumber(output.total.carbs),
-      fat: toNumber(output.total.fat),
-    },
-  };
+const toNum = (v: unknown) => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? Math.round(n * 10) / 10 : 0;
 };
 
 const extractJson = (text: string) => {
-  const cleaned = text.replace(/```json|```/gi, '').trim();
-  const firstObject = cleaned.indexOf('{');
-  const firstArray = cleaned.indexOf('[');
-  const start = firstArray >= 0 && (firstArray < firstObject || firstObject === -1) ? firstArray : firstObject;
-
-  if (start === -1) {
-    throw new Error('AI returned text instead of JSON');
-  }
-
-  const jsonText = cleaned.slice(start, Math.max(cleaned.lastIndexOf('}'), cleaned.lastIndexOf(']')) + 1);
-  return JSON.parse(jsonText);
+  const cleaned = text.replace(/```json|```/gi, "").trim();
+  const start = Math.min(...[cleaned.indexOf("{"), cleaned.indexOf("[")].filter((i) => i >= 0));
+  const end = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
+  if (!Number.isFinite(start) || end < 0) throw new Error("AI returned no JSON");
+  return JSON.parse(cleaned.slice(start, end + 1));
 };
 
-const analyzeWithLovableAI = async (imageBase64: string) => {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+const analyzeWithAI = async (imageBase64: string, priority: boolean) => {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("AI not configured");
 
-  if (!apiKey) {
-    throw new Error('Built-in AI is not configured for this project.');
-  }
-
-  const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
+      model: priority ? "google/gemini-2.5-pro" : "google/gemini-2.5-flash",
       temperature: 0.1,
       messages: [
         {
-          role: 'system',
-          content: 'You are a nutrition image analyzer. Return only valid JSON with this exact shape: {"status":"success","food":[{"name":"Food name","quantity":"estimated amount","calories":0,"protein":0,"carbs":0,"fat":0}],"total":{"calories":0,"protein":0,"carbs":0,"fat":0}}. Estimate values from the visible meal photo. Use grams for macros and calories for calories.',
+          role: "system",
+          content:
+            'You are a nutrition image analyzer. Return ONLY JSON with shape: {"status":"success","meal_name":"short descriptive name","food":[{"name":"","quantity":"","calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0}],"total":{"calories":0,"protein":0,"carbs":0,"fat":0,"fiber":0,"sugar":0}}. Estimate values from the visible meal photo.',
         },
         {
-          role: 'user',
+          role: "user",
           content: [
-            { type: 'text', text: 'Analyze this meal photo and estimate calories, protein, carbs, and fat for each detected food item.' },
-            { type: 'image_url', image_url: { url: imageBase64 } },
+            { type: "text", text: "Analyze this meal photo. Give per-item and total calories, protein, carbs, fat, fiber, sugar." },
+            { type: "image_url", image_url: { url: imageBase64 } },
           ],
         },
       ],
     }),
   });
 
-  if (!aiResponse.ok) {
-    const errorText = await aiResponse.text();
-    console.error('Built-in AI error:', aiResponse.status, errorText);
-    throw new Error(`Built-in AI analysis failed with status ${aiResponse.status}.`);
+  if (!res.ok) {
+    const t = await res.text();
+    console.error("AI error", res.status, t);
+    if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
+    if (res.status === 402) throw new Error("AI credits exhausted. Please add credits.");
+    throw new Error(`AI analysis failed (${res.status})`);
   }
 
-  const aiData = await aiResponse.json();
-  const content = aiData?.choices?.[0]?.message?.content;
-  const text = Array.isArray(content)
-    ? content.map((part: any) => part?.text || '').join('\n')
-    : String(content || '');
-  const parsed = extractJson(text);
-  const normalized = normalizeNutritionData(parsed);
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  const text = Array.isArray(content) ? content.map((p: any) => p?.text || "").join("\n") : String(content || "");
+  const parsed: any = extractJson(text);
+  const out = Array.isArray(parsed) ? parsed[0]?.output ?? parsed[0] : parsed.output ?? parsed;
+  if (!out?.food || !out?.total) throw new Error("AI returned invalid format");
 
-  if (!normalized) {
-    throw new Error('Built-in AI returned an invalid nutrition format.');
-  }
-
-  return normalized;
+  return {
+    status: "success",
+    meal_name: out.meal_name || "Meal",
+    food: out.food.map((i: any) => ({
+      name: String(i.name || "Food"),
+      quantity: String(i.quantity || ""),
+      calories: toNum(i.calories),
+      protein: toNum(i.protein),
+      carbs: toNum(i.carbs),
+      fat: toNum(i.fat),
+      fiber: toNum(i.fiber),
+      sugar: toNum(i.sugar),
+    })),
+    total: {
+      calories: toNum(out.total.calories),
+      protein: toNum(out.total.protein),
+      carbs: toNum(out.total.carbs),
+      fat: toNum(out.total.fat),
+      fiber: toNum(out.total.fiber),
+      sugar: toNum(out.total.sugar),
+    },
+  };
 };
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Unauthorized" }, 401);
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return json({ error: "Unauthorized" }, 401);
+
     const { imageBase64 } = await req.json();
-    
-    if (!imageBase64) {
-      return jsonResponse({ error: 'Image data is required' }, 400);
+    if (!imageBase64) return json({ error: "Image required" }, 400);
+
+    // Check plan
+    const { data: sub } = await admin.from("subscribers").select("plan,status").eq("user_id", user.id).maybeSingle();
+    const isPremium = sub && (sub.plan === "monthly" || sub.plan === "yearly") && (sub.status === "active" || sub.status === "trialing");
+
+    // Free user daily limit (3/day)
+    if (!isPremium) {
+      const since = new Date(); since.setHours(0, 0, 0, 0);
+      const { count } = await admin
+        .from("scans")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", since.toISOString());
+      if ((count ?? 0) >= 3) {
+        return json({ error: "Daily limit reached", limit_reached: true }, 200);
+      }
     }
 
+    const result = await analyzeWithAI(imageBase64, !!isPremium);
 
-    console.log('Sending meal image to webhook...');
+    // Save scan
+    const { data: scan, error: scanErr } = await admin
+      .from("scans")
+      .insert({
+        user_id: user.id,
+        food: result.food,
+        meal_name: result.meal_name,
+        total_calories: result.total.calories,
+        total_protein: result.total.protein,
+        total_carbs: result.total.carbs,
+        total_fat: result.total.fat,
+        total_fiber: result.total.fiber,
+        total_sugar: result.total.sugar,
+      })
+      .select()
+      .single();
+    if (scanErr) console.error("save scan err", scanErr);
 
-    const response = await fetch(WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        image: imageBase64
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Webhook error:', response.status, errorText);
-
-      const isMissingWorkspace = errorText.includes('No workspace here');
-      const message = isMissingWorkspace
-        ? 'The meal scan webhook is not reachable. n8n says “No workspace here”, so the webhook URL or workspace subdomain appears incorrect.'
-        : `The meal scan webhook returned ${response.status}. Please check that the n8n workflow is active and the webhook URL is correct.`;
-
-      console.warn(`${message} Falling back to built-in AI analysis.`);
-      const fallbackData = await analyzeWithLovableAI(imageBase64);
-      return jsonResponse({ ...fallbackData, source: 'built-in-ai', warning: message });
-    }
-
-    const responseText = await response.text();
-    let data: unknown;
-
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Webhook returned non-JSON response:', responseText.slice(0, 500), parseError);
-      const fallbackData = await analyzeWithLovableAI(imageBase64);
-      return jsonResponse({
-        ...fallbackData,
-        source: 'built-in-ai',
-        warning: 'The n8n webhook did not return JSON, so built-in AI analyzed the image instead.',
-      });
-    }
-
-    console.log('Webhook response:', JSON.stringify(data));
-    
-    // Check if webhook returned "Workflow was started" message (async workflow)
-    if (data.message === "Workflow was started") {
-      console.error('Webhook is configured for async execution. Add a "Respond to Webhook" node in n8n.');
-      const fallbackData = await analyzeWithLovableAI(imageBase64);
-      return jsonResponse({
-        ...fallbackData,
-        source: 'built-in-ai',
-        warning: 'The n8n webhook started asynchronously and did not return meal data, so built-in AI analyzed the image instead.',
-      });
-    }
-    
-    // Validate the expected response format
-    if (!data || !Array.isArray(data) || !data[0]?.output) {
-      console.error('Invalid webhook response format:', data);
-      const fallbackData = await analyzeWithLovableAI(imageBase64);
-      return jsonResponse({
-        ...fallbackData,
-        source: 'built-in-ai',
-        warning: 'The n8n webhook returned an unexpected format, so built-in AI analyzed the image instead.',
-      });
-    }
-
-    const nutritionData = data[0].output;
-    console.log('Successfully analyzed meal:', JSON.stringify(nutritionData));
-
-    return jsonResponse({ ...nutritionData, source: 'webhook' });
-
-  } catch (error) {
-    console.error('Error in analyze-meal function:', error);
-    return jsonResponse({ error: error instanceof Error ? error.message : 'Unknown error occurred' }, 500);
+    return json({ ...result, scan_id: scan?.id });
+  } catch (e) {
+    console.error("analyze-meal err", e);
+    return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
   }
 });
