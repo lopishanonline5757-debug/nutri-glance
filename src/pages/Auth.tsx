@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, Sparkles, Apple } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 export default function Auth() {
   const navigate = useNavigate();
